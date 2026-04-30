@@ -125,7 +125,7 @@ function App() {
     }
     setError("");
     try {
-      const response = await fetch(`${API_URL}/incidents`);
+      const response = await fetch(`${API_URL}/incidents?status=${statusFilter}`);
       if (!response.ok) {
         throw new Error(`Failed to load incidents (${response.status})`);
       }
@@ -154,7 +154,7 @@ function App() {
       loadIncidents().catch(() => {});
     }, 0);
     return () => clearTimeout(timer);
-  }, []);
+  }, [statusFilter]); // Re-fetch when filter changes
 
   useEffect(() => {
     if (!autoRefresh) return;
@@ -162,7 +162,7 @@ function App() {
       loadIncidents({ silent: true }).catch(() => {});
     }, 5000);
     return () => clearInterval(timer);
-  }, [autoRefresh]);
+  }, [autoRefresh, statusFilter]);
 
   function selectIncident(incident) {
     setSelectedIncident(incident);
@@ -181,6 +181,8 @@ function App() {
     }
 
     const payload = {
+      startAt: rcaForm.startAt,
+      endAt: rcaForm.endAt,
       description: rcaForm.fixApplied,
       rootCause: rcaForm.rootCause,
       actionItems: rcaForm.preventionSteps

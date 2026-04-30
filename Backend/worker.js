@@ -8,6 +8,7 @@ const { initMongoDB, getMongoDB, getRedis } = require("./utils/database");
 const { retryWithBackoff } = require("./utils/retry");
 const { metricsCollector } = require("./utils/metrics");
 const { AlertService } = require("./utils/alerts");
+const { AlertContext, P0Strategy, P2Strategy, DefaultStrategy } = require("./utils/alertStrategies");
 const Incident = require("./models/incident");
 const Signal = require("./models/signal");
 
@@ -74,6 +75,17 @@ async function processSignal(signal) {
 
     const severity = severityMap[signal.type] || signal.severity || "medium";
 
+    // 1. Save Signal to MongoDB (Data Lake)
+    const newSignal = new Signal({
+      _id: signal.signalId,
+      type: signal.type,
+      source: signal.source,
+      severity: severity,
+      description: signal.description,
+      metadata: signal.metadata || {},
+    });
+    await newSignal.save();
+
     // Check if incident already exists for this source/type within last 10 minutes
     const existingIncident = await Incident.findOne({
       source: signal.source,
@@ -91,6 +103,13 @@ async function processSignal(signal) {
       existingIncident.signals.push(signal.signalId);
       incident = await existingIncident.save();
     } else {
+      if (signal.isDuplicate) {
+         // Race condition: The main signal is still processing and hasn't created the incident yet.
+         // Return false to requeue this message so it can attach to the incident on the next try.
+         console.log(`⏳ Incident not ready for duplicate signal yet, requeuing...`);
+         return false; // This triggers channel.nack(msg, false, true) in the consumer
+      }
+      
       // Create new incident
       console.log(`✨ Creating new incident for signal`);
 
@@ -123,10 +142,16 @@ async function processSignal(signal) {
       metricsCollector.recordIncident(severity);
       metricsCollector.recordDbWrite(true);
 
-      // Send critical alert if severity is high or critical
-      if (severity === "critical" || severity === "high") {
-        await alertService.alertCritical(incident);
+      // Use Strategy Pattern for Alerting
+      const alertContext = new AlertContext();
+      if (severity === "critical") {
+        alertContext.setStrategy(new P0Strategy());
+      } else if (severity === "high") {
+        alertContext.setStrategy(new P2Strategy());
+      } else {
+        alertContext.setStrategy(new DefaultStrategy());
       }
+      await alertContext.executeStrategy(alertService, incident);
     }
 
     // Update signal as processed
@@ -162,7 +187,7 @@ async function processSignal(signal) {
 // ============ Message Consumer ============
 
 async function startConsumer() {
-  await channel.prefetch(1); // Process one message at a time
+  await channel.prefetch(50); // Process up to 50 messages concurrently
 
   await channel.consume("signals", async (msg) => {
     if (msg) {

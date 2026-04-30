@@ -32,6 +32,8 @@ const incidentSchema = new mongoose.Schema(
       },
     ],
     rca: {
+      startAt: Date,
+      endAt: Date,
       description: String,
       rootCause: String,
       actionItems: [String],
@@ -74,6 +76,8 @@ incidentSchema.pre("save", function () {
 incidentSchema.methods.validateRCA = function () {
   if (!this.rca) return false;
   return (
+    this.rca.startAt &&
+    this.rca.endAt &&
     this.rca.description &&
     this.rca.rootCause &&
     this.rca.actionItems &&
