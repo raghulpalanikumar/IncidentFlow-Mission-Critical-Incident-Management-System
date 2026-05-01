@@ -9,26 +9,84 @@ This project guarantees robust processing through advanced engineering patterns 
 
 ## 🏗️ Architecture Diagram
 
-```mermaid
-graph TD
-    Client[External Systems / APIs] -->|POST /signals| API[Express.js Backend API]
-    UI[React Frontend Dashboard] -->|GET /incidents| API
-    
-    subgraph "High-Throughput Ingestion"
-        API -->|Debounce / Check| Redis[(Redis Cache)]
-        API -->|Enqueue (Zero-Blocking)| AMQP[RabbitMQ 'signals' Queue]
-    end
-    
-    subgraph "Asynchronous Processing"
-        AMQP -->|Consume| Worker[Worker.js Consumer]
-        Worker -->|Persist Raw Audit| MongoDB[(MongoDB Data Lake)]
-        Worker -->|Create/Update Incident| MongoDB
-        Worker -->|Route Alerts| Strategy[Alerting Strategy]
-    end
-    
-    Strategy --> Slack[Slack / Webhooks]
-    UI -.->|Auto-refresh every 5s| Redis
-```
+                         ┌───────────────────────────┐
+                         │   External Systems / APIs │
+                         │   (Producers)             │
+                         └─────────────┬─────────────┘
+                                       │
+                                       │  POST /signals
+                                       ▼
+                         ┌───────────────────────────┐
+                         │   Backend API (Express)   │
+                         │   Node.js Server          │
+                         └─────────────┬─────────────┘
+                                       │
+                  ┌────────────────────┼────────────────────┐
+                  │                    │                    │
+                  │                    │                    │
+                  ▼                    ▼                    ▼
+        ┌───────────────┐    ┌────────────────┐    ┌────────────────┐
+        │  Redis Cache  │    │  Debounce Logic │    │  RabbitMQ Queue│
+        │ (Hot Path)    │    │  (Duplicate     │    │  "signals"     │
+        │               │    │   Filtering)    │    │                │
+        └──────┬────────┘    └────────┬───────┘    └────────┬───────┘
+               │                      │                     │
+               │                      │                     │
+               │                      │         (Async / Non-blocking)
+               │                      │                     │
+               │                      └──────────────┬──────┘
+               │                                     │
+               │                                     ▼
+               │                         ┌───────────────────────────┐
+               │                         │      Worker Service       │
+               │                         │      (worker.js)          │
+               │                         └─────────────┬─────────────┘
+               │                                       │
+               │                 ┌─────────────────────┼─────────────────────┐
+               │                 │                     │                     │
+               ▼                 ▼                     ▼                     ▼
+      ┌───────────────┐  ┌────────────────┐   ┌────────────────┐   ┌────────────────┐
+      │   MongoDB     │  │ Incident Logic │   │ Alert Strategy │   │ Re-Queue Logic │
+      │ (Signals +    │  │ (Create/Update)│   │ (P0 / P2 etc.) │   │ (Race Handling)│
+      │  Incidents)   │  └────────────────┘   └────────────────┘   └────────────────┘
+      └───────────────┘            │                     │
+                                   │                     │
+                                   ▼                     ▼
+                           ┌───────────────┐    ┌──────────────────┐
+                           │   Incidents   │    │ Slack / Webhooks │
+                           │   Collection  │    │ Notifications     │
+                           └───────────────┘    └──────────────────┘
+
+
+        ...........................................................................
+
+                         ┌───────────────────────────┐
+                         │   React Frontend (UI)     │
+                         │   Dashboard               │
+                         └─────────────┬─────────────┘
+                                       │
+                                       │  GET /incidents (Every 5s)
+                                       ▼
+                         ┌───────────────────────────┐
+                         │   Backend API             │
+                         │   (Reads from Cache)      │
+                         └─────────────┬─────────────┘
+                                       │
+                                       ▼
+                              ┌────────────────┐
+                              │   Redis Cache  │
+                              │   (TTL 10s)    │
+                              └────────────────┘
+
+
+        ...........................................................................
+
+                         ┌───────────────────────────┐
+                         │  Observability Layer      │
+                         ├───────────────────────────┤
+                         │  /metrics  → Prometheus   │
+                         │  /health   → Health Check │
+                         └───────────────────────────┘
 
 ## ⚙️ System Architecture & Tech Stack
 
