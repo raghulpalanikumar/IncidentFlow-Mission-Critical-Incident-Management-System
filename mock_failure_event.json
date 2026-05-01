@@ -1,0 +1,16 @@
+{
+  "events": [
+    {
+      "type": "exception",
+      "source": "postgresql-primary",
+      "severity": "critical",
+      "description": "CRITICAL: Connection pool exhausted. DB Outage detected."
+    },
+    {
+      "type": "error",
+      "source": "mcp-dashboard-service",
+      "severity": "high",
+      "description": "HIGH: Cannot connect to primary database. Dashboard rendering failed."
+    }
+  ]
+}
